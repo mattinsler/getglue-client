@@ -13,8 +13,11 @@ import org.apache.commons.httpclient.methods.GetMethod;
 
 import com.adaptiveblue.client.exception.GetGlueMethodException;
 import com.adaptiveblue.util.CreateMap;
+import com.adaptiveblue.util.digester.DigesterExistsField;
+import com.adaptiveblue.util.digester.Status;
 import com.adaptiveblue.util.digester.TypedDigester;
 import com.adaptiveblue.util.digester.TypedDigesters;
+import com.adaptiveblue.util.digester.User;
 
 public class GetGlueClient {
 	public static final class API {
@@ -25,17 +28,19 @@ public class GetGlueClient {
 		public static final class Authentication {
 			public static final String Login = "/user/login";
 		}
-		public static final class CheckIn {
-			public static final String Add = "/user/addCheckin";
-			public static final String Remove = "/user/removeCheckin";
-		}
 		public static final class User {
 			public static final String Profile = "/user/profile";
 			public static final String Friends = "/user/friends";
 			public static final String Followers = "/user/followers";
+			public static final String AddCheckIn = "/user/addCheckin";
+			public static final String RemoveCheckIn = "/user/removeCheckin";
+			public static final String Follow = "/user/follow";
+			public static final String UnFollow = "/user/unfollow";
+			public static final String IsFriend = "/user/isFriend";
 		}
 		public static final class Glue {
 			public static final String Categories = "/glue/categories";
+			public static final String FindUsers = "/glue/findUsers";
 		}
 		public static final class Object {
 			public static final String Get = "/object/get";
@@ -137,11 +142,60 @@ public class GetGlueClient {
 		Map<String, String> args = CreateMap.of("objectId", objectId, "source", source, "app", application);
 		if (comment != null)
 			args.put("comment", comment.length() <= 140 ? comment : comment.substring(0, 139));
-		return request(API.CheckIn.Add, args, _interactionDigester);
+		return request(API.User.AddCheckIn, args, _interactionDigester);
 	}
 	
 	private static final DateFormat _dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'");
 	public boolean removeCheckIn(String objectId, Date timestamp) throws Exception {
-		return request(API.CheckIn.Remove, CreateMap.of("objectId", objectId, "timestamp", _dateFormat.format(timestamp)), TypedDigesters.create(boolean.class, "adaptiveblue/response/success"));
+		return request(API.User.RemoveCheckIn, CreateMap.of("objectId", objectId, "timestamp", _dateFormat.format(timestamp)), _successOrPendingDigester).success;
+	}
+	
+	public static class SuccessOrPending {
+		@DigesterExistsField
+		public boolean success;
+		@DigesterExistsField
+		public boolean pending;
+	}
+	
+	private final TypedDigester<SuccessOrPending> _successOrPendingDigester = TypedDigesters.create(SuccessOrPending.class, "adaptiveblue/response");
+	public Status followUser(String userId) throws Exception {
+		SuccessOrPending result = request(API.User.Follow, CreateMap.of("followUserId", userId), _successOrPendingDigester);
+		if (result.pending)
+			return Status.Pending;
+		if (result.success)
+			return Status.Success;
+		throw new RuntimeException();
+	}
+	
+	public boolean unFollowUser(String userId) throws Exception {
+		return request(API.User.UnFollow, CreateMap.of("unfollowUserId", userId), _successOrPendingDigester).success;
+	}
+	
+	public Status isUserFriend(String friendUserId) throws Exception {
+		if (_loginPing != null) {
+			return isUserFriend(_loginPing.userId, friendUserId);
+		}
+		throw new RuntimeException();
+	}
+	
+	public static class StringResponse {
+		public String response;
+	}
+	
+	TypedDigester<StringResponse> _responseStringDigester = TypedDigesters.create(StringResponse.class, "adaptiveblue");
+	public Status isUserFriend(String userId, String friendUserId) throws Exception {
+		String result = request(API.User.IsFriend, CreateMap.of("userId", userId, "friendUserId", friendUserId), _responseStringDigester).response;
+		if ("true".equals(result))
+			return Status.Success;
+		else if ("false".equals(result))
+			return Status.Failure;
+		else if ("pending".equals(result))
+			return Status.Pending;
+		throw new RuntimeException();
+	}
+
+	TypedDigester<List<String>> _userListDigester = TypedDigesters.createList(String.class, "adaptiveblue/response/users", "user/username");
+	public List<String> findUsers(String userId) throws Exception {
+		return request(API.Glue.FindUsers, CreateMap.of("userId", userId), _userListDigester);
 	}
 }

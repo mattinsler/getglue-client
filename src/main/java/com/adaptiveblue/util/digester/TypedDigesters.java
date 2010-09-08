@@ -8,10 +8,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.commons.digester.Digester;
+import org.apache.commons.digester.Rule;
+import org.apache.commons.digester.RuleSet;
 import org.apache.commons.digester.RuleSetBase;
+import org.xml.sax.Attributes;
 
 public final class TypedDigesters {
-	private static String combinePattern(String lhs, String rhs) {
+	static String combinePattern(String lhs, String rhs) {
 		if (lhs.length() == 0)
 			return rhs;
 		if (rhs.length() == 0)
@@ -19,7 +22,7 @@ public final class TypedDigesters {
 		return ('/' == lhs.charAt(lhs.length() - 1) ? lhs.substring(0, lhs.length() - 1) : lhs) + "/" + ('/' == rhs.charAt(0) ? rhs.substring(1, rhs.length()) : rhs);
 	}
 	
-	private static String getFieldName(Field field) {
+	static String getFieldName(Field field) {
 		DigesterField digestField = field.getAnnotation(DigesterField.class);
 		if (digestField != null)
 			return digestField.value();
@@ -90,19 +93,35 @@ public final class TypedDigesters {
 		};
 	}
 	
+	private static PatternRuleSet createFieldExistsSet(Field field) {
+		return new PatternRuleSet() {
+			@Override
+			public void addRuleInstances(Digester digester) {
+				digester.addRule(getPattern(), new Rule() {
+					@Override
+					public void begin(String namespace, String name, Attributes attributes) throws Exception {
+						getDigester().push(getPattern(), Boolean.TRUE);
+					}
+				});
+			}
+		};
+	}
+	
 	private static class ComposedPatternRuleSet extends PatternRuleSet {
-		private final PatternRuleSet[] _ruleSets;
-		public ComposedPatternRuleSet(PatternRuleSet... ruleSets) {
+		private final RuleSet[] _ruleSets;
+		public ComposedPatternRuleSet(RuleSet... ruleSets) {
 			_ruleSets = ruleSets;
 		}
 		@Override
 		public void setPattern(String pattern) {
-			for (PatternRuleSet set : _ruleSets)
-				set.setPattern(pattern);
+			for (RuleSet set : _ruleSets) {
+				if (set instanceof PatternRuleSet)
+					((PatternRuleSet)set).setPattern(pattern);
+			}
 		}
 		@Override
 		public void addRuleInstances(Digester digester) {
-			for (PatternRuleSet set : _ruleSets)
+			for (RuleSet set : _ruleSets)
 				set.addRuleInstances(digester);
 		}
 	}
@@ -127,10 +146,19 @@ public final class TypedDigesters {
 		public void addRuleInstances(Digester digester) {
 			digester.addObjectCreate(getPattern(), _type);
 
-			for (Field field : _type.getDeclaredFields()) {
-				Class<?> fieldType = field.getType();
+			for (final Field field : _type.getDeclaredFields()) {
 				PatternRuleSet set;
-				if (List.class.isAssignableFrom(fieldType)) {
+				Class<?> fieldType = field.getType();
+				final String newPattern = combinePattern(getPattern(), getFieldName(field));
+				
+				if (field.getAnnotation(DigesterExistsField.class) != null && (boolean.class.equals(fieldType) || Boolean.class.equals(fieldType))) {
+					set = new ComposedPatternRuleSet(createFieldExistsSet(field), new RuleSetBase() {
+						@Override
+						public void addRuleInstances(Digester digester) {
+							digester.addRule(getPattern(), new SetFieldOnEndWithDefaultRule(field, newPattern, Boolean.FALSE));
+						}
+					});
+				} else if (List.class.isAssignableFrom(fieldType)) {
 					set = new ComposedPatternRuleSet(createListTypeSet(field), new SetFieldOnEndRuleSet(field));
 				} else if (fieldType.isArray()) {
 					throw new UnsupportedOperationException();
@@ -139,7 +167,8 @@ public final class TypedDigesters {
 				} else {
 					set = new ComposedPatternRuleSet(createUserTypeSet(fieldType), new SetFieldOnEndRuleSet(field));
 				}
-				set.setPattern(combinePattern(getPattern(), getFieldName(field)));
+				
+				set.setPattern(newPattern);
 				digester.addRuleSet(set);
 			}
 		}
@@ -166,6 +195,25 @@ public final class TypedDigesters {
 		d.digester.addRuleSet(set);
 		
 		return d;
+	}
+	
+	public static TypedDigester<Boolean> createElementExists(String pattern) {
+		return new ElementExistsDigester(pattern);
+	}
+	
+	public static class ElementExistsDigester implements TypedDigester<Boolean> {
+		private final Digester _digester = new Digester();
+		public ElementExistsDigester(String pattern) {
+			_digester.addRule(pattern, new Rule() {
+				@Override
+				public void begin(String namespace, String name, Attributes attributes) throws Exception {
+					getDigester().push(new Object());
+				}
+			});
+		}
+		public Boolean digest(InputStream stream) throws Exception {
+			return _digester.parse(stream) != null;
+		}
 	}
 
 	public static class SimpleDigester<T> implements TypedDigester<T> {
