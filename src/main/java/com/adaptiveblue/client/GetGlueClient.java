@@ -17,7 +17,6 @@ import com.adaptiveblue.util.digester.DigesterExistsField;
 import com.adaptiveblue.util.digester.Status;
 import com.adaptiveblue.util.digester.TypedDigester;
 import com.adaptiveblue.util.digester.TypedDigesters;
-import com.adaptiveblue.util.digester.User;
 
 public class GetGlueClient {
 	public static final class API {
@@ -74,7 +73,6 @@ public class GetGlueClient {
 		
 		try {
 			int statusCode = _client.executeMethod(getMethod);
-			System.out.println(getMethod.getResponseBodyAsString());
 			if (statusCode != HttpStatus.SC_OK) {
 				throw new GetGlueMethodException(_errorDigester.digest(getMethod.getResponseBodyAsStream()));
 			} else {
