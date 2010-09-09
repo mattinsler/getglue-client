@@ -1,0 +1,13 @@
+# Build instructions #
+
+If you don't already have maven, go get it (http://maven.apache.org/)
+Clone this project
+- git clone git://github.com/mattinsler/getglue-client.git
+
+Go into the root directory
+- cd getglue-client
+
+Build via Maven
+- mvn package
+
+You should now have a target directory with getglue-client-{version}-SNAPSHOT.jar in it.
